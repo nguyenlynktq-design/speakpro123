@@ -29,6 +29,9 @@ const App: React.FC = () => {
   const [audioState, setAudioState] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [showCertificate, setShowCertificate] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [selectedModel, setSelectedModel] = useState('gemini-3-flash');
 
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
@@ -43,6 +46,14 @@ const App: React.FC = () => {
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem('speakpro_api_key');
+    const savedModel = localStorage.getItem('speakpro_model');
+    if (savedApiKey) setApiKey(savedApiKey);
+    if (savedModel) setSelectedModel(savedModel);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -274,6 +285,19 @@ const App: React.FC = () => {
     link.click();
   };
 
+  const saveSettings = () => {
+    if (!apiKey.trim()) {
+      alert('Vui lòng nhập API Key!');
+      return;
+    }
+    localStorage.setItem('speakpro_api_key', apiKey.trim());
+    localStorage.setItem('speakpro_model', selectedModel);
+    setShowSettings(false);
+    alert('✅ Đã lưu cài đặt thành công!');
+  };
+
+  const getApiKey = () => apiKey || process.env.API_KEY || '';
+
   return (
     <div className="min-h-screen bg-[#fffcf5] pb-20 font-['Quicksand'] relative overflow-x-hidden text-slate-700">
       <header className="bg-white/80 backdrop-blur-xl border-b-4 border-orange-100 sticky top-0 z-50 px-6 py-4 shadow-sm">
@@ -285,6 +309,7 @@ const App: React.FC = () => {
             <h1 className="text-2xl font-black text-orange-500 tracking-tighter">Speakpro</h1>
           </div>
           <div className="flex items-center gap-4">
+            <button onClick={() => setShowSettings(true)} className="p-3 bg-orange-50 rounded-xl text-slate-400 hover:text-orange-500 shadow-md transition-all" title="Cài đặt"><Settings2 size={20} /></button>
             <div className="flex flex-col items-end">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Học sinh</span>
               <input type="text" value={childName} onChange={e => setChildName(e.target.value)} className="bg-transparent border-none outline-none font-black text-slate-800 w-24 text-right text-sm" />
@@ -495,6 +520,74 @@ const App: React.FC = () => {
               <div className="flex justify-center gap-6 no-print">
                 <button onClick={() => window.print()} className="px-10 py-5 bg-slate-900 text-white rounded-[2rem] font-black text-xl flex items-center gap-3"><Printer size={24} /> IN GIẤY KHEN</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-xl animate-in fade-in" onClick={() => setShowSettings(false)}>
+          <div className="bg-white max-w-md w-full rounded-3xl shadow-2xl relative animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowSettings(false)} className="absolute -top-4 -right-4 z-[610] p-3 bg-red-500 text-white rounded-full shadow-2xl hover:scale-110 transition-all border-4 border-white"><X size={24} /></button>
+            <div className="p-8 space-y-6">
+              <div className="flex items-center gap-3 pb-4 border-b-2 border-slate-100">
+                <div className="p-2 bg-teal-500 rounded-xl"><Settings2 size={24} className="text-white" /></div>
+                <h2 className="text-2xl font-black text-slate-800">Cài đặt hệ thống</h2>
+              </div>
+              <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={20} className="text-blue-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-bold text-blue-900 mb-1">Để ứng dụng hoạt động, bạn cần có API Key riêng.</p>
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold underline hover:text-blue-700">Lấy key tại đây (Miễn phí)</a>
+                    <p className="text-xs text-slate-600 mt-2">Hoặc xem hướng dẫn chi tiết: <a href="https://aistudio.google.com/apikey" target="_blank" className="text-blue-600 underline">Tại đây</a></p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 flex items-center gap-2"><span className="text-teal-500">🔑</span> Dán API Key của bạn vào</label>
+                <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="AIza..." className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition-all font-mono text-sm" />
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">2. CHỌN MODEL XỬ LÝ AI</h3>
+                <div onClick={() => setSelectedModel('gemini-3-flash')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-3-flash' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-black text-slate-800">Gemini 3.0 Flash (Khuyến dùng)</h4>
+                        {selectedModel === 'gemini-3-flash' && <CheckCircle2 size={20} className="text-teal-500" />}
+                      </div>
+                      <p className="text-sm text-slate-600">Tốc độ nhanh, ổn định, chi phí thấp nhất.</p>
+                    </div>
+                    {selectedModel === 'gemini-3-flash' && <span className="px-2 py-1 bg-teal-500 text-white text-xs font-bold rounded-full">Default</span>}
+                  </div>
+                </div>
+                <div onClick={() => setSelectedModel('gemini-3-pro')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-3-pro' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-black text-slate-800">Gemini 3.0 Pro</h4>
+                        {selectedModel === 'gemini-3-pro' && <CheckCircle2 size={20} className="text-teal-500" />}
+                      </div>
+                      <p className="text-sm text-slate-600">Thông minh hơn, xử лý suy luận phức tạp tốt hơn.</p>
+                    </div>
+                  </div>
+                </div>
+                <div onClick={() => setSelectedModel('gemini-2.5-flash')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-2.5-flash' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-black text-slate-800">Gemini 2.5 Flash</h4>
+                        {selectedModel === 'gemini-2.5-flash' && <CheckCircle2 size={20} className="text-teal-500" />}
+                      </div>
+                      <p className="text-sm text-slate-600">Model dự phòng, ổn định cao.</p>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 italic px-2">💡 Hệ thống sẽ tự động chuyển đổi sang các model khác nếu gặp lỗi (tối đa 9 lần thử).</p>
+              </div>
+              <button onClick={saveSettings} className="w-full py-4 bg-teal-500 hover:bg-teal-600 text-white font-black text-lg rounded-2xl shadow-lg hover:shadow-xl transition-all">Lưu cài đặt</button>
             </div>
           </div>
         </div>

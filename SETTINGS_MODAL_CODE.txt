@@ -1,0 +1,147 @@
+// TEMPORARY SETTINGS MODAL CODE - TO BE INSERTED INTO APP.TSX AFTER LINE 526
+
+{/* Settings Modal */}
+{showSettings && (
+  <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-xl animate-in fade-in" onClick={() => setShowSettings(false)}>
+    <div className="bg-white max-w-md w-full rounded-3xl shadow-2xl relative animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+      <button 
+        onClick={() => setShowSettings(false)} 
+        className="absolute -top-4 -right-4 z-[610] p-3 bg-red-500 text-white rounded-full shadow-2xl hover:scale-110 transition-all border-4 border-white"
+      >
+        <X size={24} />
+      </button>
+      
+      <div className="p-8 space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3 pb-4 border-b-2 border-slate-100">
+          <div className="p-2 bg-teal-500 rounded-xl">
+            <Settings2 size={24} className="text-white" />
+          </div>
+          <h2 className="text-2xl font-black text-slate-800">Cài đặt hệ thống</h2>
+        </div>
+
+        {/* Warning Notice */}
+        <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-lg">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={20} className="text-blue-500 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-bold text-blue-900 mb-1">Để ứng dụng hoạt động, bạn cần có API Key riêng.</p>
+              <a 
+                href="https://aistudio.google.com/apikey" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-blue-600 font-bold underline hover:text-blue-700"
+              >
+                Lấy key tại đây (Miễn phí)
+              </a>
+              <p className="text-xs text-slate-600 mt-2">
+                Hoặc xem hướng dẫn chi tiết: <a href="https://aistudio.google.com/apikey" target="_blank" className="text-blue-600 underline">Tại đây</a>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* API Key Input */}
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <span className="text-teal-500">🔑</span> Dán API Key của bạn vào
+          </label>
+          <input
+            type="text"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            placeholder="AIza..."
+            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition-all font-mono text-sm"
+          />
+        </div>
+
+        {/* Model Selection */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">2. CHỌN MODEL XỬ LÝ AI</h3>
+          
+          {/* Gemini 3.0 Flash */}
+          <div 
+            onClick={() => setSelectedModel('gemini-3-flash')}
+            className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${
+              selectedModel === 'gemini-3-flash' 
+                ? 'border-teal-400 bg-teal-50' 
+                : 'border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className="font-black text-slate-800">Gemini 3.0 Flash (Khuyến dùng)</h4>
+                  {selectedModel === 'gemini-3-flash' && (
+                    <CheckCircle2 size={20} className="text-teal-500" />
+                  )}
+                </div>
+                <p className="text-sm text-slate-600">Tốc độ nhanh, ổn định, chi phí thấp nhất.</p>
+              </div>
+              {selectedModel === 'gemini-3-flash' && (
+                <span className="px-2 py-1 bg-teal-500 text-white text-xs font-bold rounded-full">Default</span>
+              )}
+            </div>
+          </div>
+
+          {/* Gemini 3.0 Pro */}
+          <div 
+            onClick={() => setSelectedModel('gemini-3-pro')}
+            className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${
+              selectedModel === 'gemini-3-pro' 
+                ? 'border-teal-400 bg-teal-50' 
+                : 'border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className="font-black text-slate-800">Gemini 3.0 Pro</h4>
+                  {selectedModel === 'gemini-3-pro' && (
+                    <CheckCircle2 size={20} className="text-teal-500" />
+                  )}
+                </div>
+                <p className="text-sm text-slate-600">Thông minh hơn, xử lý suy luận phức tạp tốt hơn.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Gemini 2.5 Flash */}
+          <div 
+            onClick={() => setSelectedModel('gemini-2.5-flash')}
+            className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${
+              selectedModel === 'gemini-2.5-flash' 
+                ? 'border-teal-400 bg-teal-50' 
+                : 'border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className="font-black text-slate-800">Gemini 2.5 Flash</h4>
+                  {selectedModel === 'gemini-2.5-flash' && (
+                    <CheckCircle2 size={20} className="text-teal-500" />
+                  )}
+                </div>
+                <p className="text-sm text-slate-600">Model dự phòng, ổn định cao.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Fallback Info */}
+          <p className="text-xs text-slate-500 italic px-2">
+            💡 Hệ thống sẽ tự động chuyển đổi sang các model khác nếu gặp lỗi (tối đa 9 lần thử).
+          </p>
+        </div>
+
+        {/* Save Button */}
+        <button
+          onClick={saveSettings}
+          className="w-full py-4 bg-teal-500 hover:bg-teal-600 text-white font-black text-lg rounded-2xl shadow-lg hover:shadow-xl transition-all"
+        >
+          Lưu cài đặt
+        </button>
+      </div>
+    </div>
+  </div>
+)}
