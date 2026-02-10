@@ -106,15 +106,11 @@ const App: React.FC = () => {
       setStatus(AppStatus.GENERATING);
       setErrorMessage(null);
 
-      // Generate image and script in parallel for faster loading
-      const [img, scriptData] = await Promise.all([
-        generateIllustration(themeText),
-        (async () => {
-          // Wait a tiny bit for image to start, but don't block
-          await new Promise(r => setTimeout(r, 100));
-          return generatePresentationScript('', themeText, level);
-        })()
-      ]);
+      // Generate image first (required for script context)
+      const img = await generateIllustration(themeText);
+
+      // Then generate script with image context
+      const scriptData = await generatePresentationScript(img, themeText, level);
 
       const fullScript = `${scriptData.intro} ${scriptData.points.join(' ')} ${scriptData.conclusion}`;
       setPresentation({
@@ -124,7 +120,7 @@ const App: React.FC = () => {
       });
       setStatus(AppStatus.READY);
 
-      // Generate audio in background without blocking UI
+      // Generate audio in background without blocking UI (optimization kept)
       generateAudioForDownload(fullScript).catch(e => console.warn('Audio preload failed', e));
     } catch (err: any) {
       setErrorMessage(err?.message || "Oops! Có lỗi rồi bé ơi.");

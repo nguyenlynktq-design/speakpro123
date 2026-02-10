@@ -2,30 +2,70 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { CEFRLevel, EvaluationResult } from "../types";
 
-async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 4): Promise<T> {
-  let delay = 1500;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      const errorStr = JSON.stringify(err).toLowerCase();
-      if ((err?.status === 429 || errorStr.includes('quota')) && i < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2.5;
-        continue;
+// Model fallback configuration as per AI_INSTRUCTIONS.md
+const MODEL_FALLBACK_CHAIN = [
+  'gemini-3-pro-preview',    // Default: Most capable
+  'gemini-3-flash-preview',  // Fallback 1: Faster, good quality
+  'gemini-2.5-flash'         // Fallback 2: Most stable
+];
+
+type ModelType = 'text' | 'image';
+
+async function callWithModelFallback<T>(
+  fn: (model: string) => Promise<T>,
+  modelType: ModelType = 'text',
+  maxRetries = 3
+): Promise<T> {
+  const models = modelType === 'image'
+    ? ['gemini-2.5-flash-image'] // Image model stays the same
+    : MODEL_FALLBACK_CHAIN;
+
+  let lastError: any;
+
+  for (const model of models) {
+    let delay = 1500;
+
+    // Try each model with limited retries
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        console.log(`[Model Fallback] Trying ${model}, attempt ${attempt + 1}`);
+        return await fn(model);
+      } catch (err: any) {
+        lastError = err;
+        const errorStr = JSON.stringify(err).toLowerCase();
+        const isRateLimit = err?.status === 429 || errorStr.includes('quota') || errorStr.includes('rate limit');
+        const isServerError = err?.status >= 500 || errorStr.includes('internal error');
+
+        // If rate limit or server error, retry with delay
+        if ((isRateLimit || isServerError) && attempt < maxRetries - 1) {
+          console.log(`[Model Fallback] ${model} failed (${err?.status}), retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2.5;
+          continue;
+        }
+
+        // If this is not the last model, try next model immediately
+        if (models.indexOf(model) < models.length - 1) {
+          console.log(`[Model Fallback] ${model} exhausted, switching to next model`);
+          break;
+        }
+
+        // If it's the last model and last attempt, throw error
+        throw err;
       }
-      throw err;
     }
   }
-  throw new Error("MÁY CHỦ BẬN: Bé vui lòng chờ 30 giây rồi nhấn 'Thử lại' nhé!");
+
+  // If all models failed, throw the last error
+  throw new Error(`MÁY CHỦ BẬN: Tất cả ${models.length} model đều gặp lỗi. Vui lòng chờ 30 giây rồi thử lại! (${lastError?.message || 'Unknown error'})`);
 }
 
 export const generateIllustration = async (theme: string): Promise<string> => {
-  return callWithRetry(async () => {
+  return callWithModelFallback(async (model) => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `A vibrant, very colorful, high-quality 3D Pixar style illustration for children: ${theme}. Bright saturated colors, happy characters, 16:9 ratio.`;
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model, // Use dynamic model from fallback
       contents: { parts: [{ text: prompt }] },
       config: { imageConfig: { aspectRatio: "16:9" } }
     });
@@ -33,11 +73,11 @@ export const generateIllustration = async (theme: string): Promise<string> => {
       if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
     throw new Error("Không tạo được ảnh.");
-  });
+  }, 'image');
 };
 
 export const generatePresentationScript = async (imageUri: string, theme: string, level: CEFRLevel): Promise<any> => {
-  return callWithRetry(async () => {
+  return callWithModelFallback(async (model) => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const levelConstraints: Record<string, string> = {
       'Starters': 'Strictly 20 words. Grammar: Extremely simple nouns/verbs. Example: "I see a cat. It is red."',
@@ -71,7 +111,7 @@ export const generatePresentationScript = async (imageUri: string, theme: string
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model, // Use dynamic model from fallback
       contents: { parts },
       config: {
         responseMimeType: "application/json",
@@ -104,10 +144,10 @@ export const generatePresentationScript = async (imageUri: string, theme: string
 };
 
 export const generateTeacherVoice = async (text: string): Promise<AudioBuffer> => {
-  return callWithRetry(async () => {
+  return callWithModelFallback(async (model) => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-2.5-flash-preview-tts", // TTS model is specific, doesn't use fallback
       contents: [{ parts: [{ text: `Slow, clear, friendly English for kids: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -117,14 +157,14 @@ export const generateTeacherVoice = async (text: string): Promise<AudioBuffer> =
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     return await decodeAudioData(decode(base64Audio!), audioContext, 24000, 1);
-  });
+  }, 'text'); // Use text fallback for TTS
 };
 
 export const evaluatePresentation = async (originalScript: string, audioBase64: string, audioMimeType: string, level: CEFRLevel): Promise<EvaluationResult> => {
-  return callWithRetry(async () => {
+  return callWithModelFallback(async (model) => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model, // Use dynamic model from fallback (default: gemini-3-pro-preview)
       contents: {
         parts: [
           { inlineData: { mimeType: audioMimeType, data: audioBase64 } },
