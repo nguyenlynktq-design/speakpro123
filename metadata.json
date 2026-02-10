@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Speakpro",
+  "description": "Luyện thuyết trình tiếng Anh chuyên nghiệp cùng Ms Ly AI",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
