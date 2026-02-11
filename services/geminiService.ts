@@ -44,7 +44,7 @@ async function callWithModelFallback<T>(
   maxRetries = 3
 ): Promise<T> {
   const models = modelType === 'image'
-    ? ['imagen-3.0-generate-001'] // Corrected image generation model name
+    ? ['gemini-2.0-flash-exp'] // Gemini 2.0 supports native image generation
     : MODEL_FALLBACK_CHAIN;
 
   let lastError: any;
