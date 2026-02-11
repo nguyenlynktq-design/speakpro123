@@ -11,8 +11,9 @@ export interface Theme {
 export interface VocabularyItem {
   word: string;
   translation: string;
-  ipa?: string; // Phiên âm quốc tế
-  definition?: string;
+  ipa: string;         // Required - displayed in UI
+  icon: string;        // Required - emoji displayed in vocabulary cards
+  definition?: string; // Optional - not currently used
 }
 
 export interface PresentationData {

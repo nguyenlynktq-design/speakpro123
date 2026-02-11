@@ -2,11 +2,38 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { CEFRLevel, EvaluationResult } from "../types";
 
-// Model fallback configuration as per AI_INSTRUCTIONS.md
+// ========================================
+// API Key Management
+// ========================================
+
+/**
+ * Get API key with priority: localStorage > environment variable
+ * Following AI_INSTRUCTIONS.md: "Ưu tiên sử dụng key từ localStorage"
+ */
+export function getApiKey(): string {
+  // Priority 1: User's key from Settings
+  const userKey = localStorage.getItem('speakpro_api_key');
+  if (userKey && userKey.trim()) return userKey.trim();
+
+  // Priority 2: Environment variable (dev only)
+  const envKey = process.env.API_KEY;
+  if (envKey && envKey.trim()) return envKey.trim();
+
+  throw new Error('⚠️ Chưa có API Key! Vào Settings (⚙️) để nhập key.');
+}
+
+/**
+ * Create AI client with proper API key
+ */
+function createAIClient(): GoogleGenAI {
+  return new GoogleGenAI({ apiKey: getApiKey() });
+}
+
+// Model fallback configuration - CORRECTED to match Google AI Studio actual models
 const MODEL_FALLBACK_CHAIN = [
-  'gemini-3-pro-preview',    // Default: Most capable
-  'gemini-3-flash-preview',  // Fallback 1: Faster, good quality
-  'gemini-2.5-flash'         // Fallback 2: Most stable
+  'gemini-2.0-flash-exp',      // Default: Latest, fastest experimental
+  'gemini-1.5-pro-latest',     // Fallback 1: Most capable stable model
+  'gemini-1.5-flash-latest'    // Fallback 2: Most stable, reliable
 ];
 
 type ModelType = 'text' | 'image';
@@ -17,7 +44,7 @@ async function callWithModelFallback<T>(
   maxRetries = 3
 ): Promise<T> {
   const models = modelType === 'image'
-    ? ['gemini-2.5-flash-image'] // Image model stays the same
+    ? ['imagen-3.0-generate-001'] // Corrected image generation model name
     : MODEL_FALLBACK_CHAIN;
 
   let lastError: any;
@@ -57,12 +84,12 @@ async function callWithModelFallback<T>(
   }
 
   // If all models failed, throw the last error
-  throw new Error(`MÁY CHỦ BẬN: Tất cả ${models.length} model đều gặp lỗi. Vui lòng chờ 30 giây rồi thử lại! (${lastError?.message || 'Unknown error'})`);
+  throw new Error(`⚠️ LỖI MÁY CHỦ: Tất cả ${models.length} model AI đều gặp lỗi.\n\nVui lòng:\n1. Kiểm tra API Key còn quota\n2. Chờ 30 giây rồi thử lại\n\nChi tiết: ${lastError?.message || 'Lỗi không xác định'}`);
 }
 
 export const generateIllustration = async (theme: string): Promise<string> => {
   return callWithModelFallback(async (model) => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = createAIClient(); // Use helper with localStorage priority
     const prompt = `A vibrant, very colorful, high-quality 3D Pixar style illustration for children: ${theme}. Bright saturated colors, happy characters, 16:9 ratio.`;
     const response = await ai.models.generateContent({
       model, // Use dynamic model from fallback
@@ -72,13 +99,13 @@ export const generateIllustration = async (theme: string): Promise<string> => {
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
-    throw new Error("Không tạo được ảnh.");
+    throw new Error("❌ Không thể tạo ảnh minh họa.\n\nVui lòng thử lại hoặc chọn chủ đề khác.");
   }, 'image');
 };
 
 export const generatePresentationScript = async (imageUri: string, theme: string, level: CEFRLevel): Promise<any> => {
   return callWithModelFallback(async (model) => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = createAIClient(); // Use helper with localStorage priority
     const levelConstraints: Record<string, string> = {
       'Starters': 'Strictly 20 words. Grammar: Extremely simple nouns/verbs. Example: "I see a cat. It is red."',
       'Movers': 'Strictly 50 words. Grammar: Simple present, clear sentences.',
@@ -144,8 +171,9 @@ export const generatePresentationScript = async (imageUri: string, theme: string
 };
 
 export const generateTeacherVoice = async (text: string): Promise<AudioBuffer> => {
-  return callWithModelFallback(async (model) => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // TTS doesn't need fallback - it uses a specific stable model
+  try {
+    const ai = createAIClient(); // Use helper with localStorage priority
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts", // TTS model is specific, doesn't use fallback
       contents: [{ parts: [{ text: `Slow, clear, friendly English for kids: ${text}` }] }],
@@ -157,12 +185,14 @@ export const generateTeacherVoice = async (text: string): Promise<AudioBuffer> =
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     return await decodeAudioData(decode(base64Audio!), audioContext, 24000, 1);
-  }, 'text'); // Use text fallback for TTS
+  } catch (err: any) {
+    throw new Error(`Lỗi tạo giọng nói: ${err?.message || 'Unknown error'}`);
+  }
 };
 
 export const evaluatePresentation = async (originalScript: string, audioBase64: string, audioMimeType: string, level: CEFRLevel): Promise<EvaluationResult> => {
   return callWithModelFallback(async (model) => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = createAIClient(); // Use helper with localStorage priority
     const response = await ai.models.generateContent({
       model, // Use dynamic model from fallback (default: gemini-3-pro-preview)
       contents: {

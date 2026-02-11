@@ -7,7 +7,8 @@ import {
   generateIllustration,
   generatePresentationScript,
   generateTeacherVoice,
-  evaluatePresentation
+  evaluatePresentation,
+  getApiKey // Import helper for API key management
 } from './services/geminiService';
 import ThemeCard from './components/ThemeCard';
 import {
@@ -31,7 +32,7 @@ const App: React.FC = () => {
   const [showCertificate, setShowCertificate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [apiKey, setApiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gemini-3-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp'); // Corrected default model
 
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
@@ -53,6 +54,14 @@ const App: React.FC = () => {
     const savedModel = localStorage.getItem('speakpro_model');
     if (savedApiKey) setApiKey(savedApiKey);
     if (savedModel) setSelectedModel(savedModel);
+
+    // 🔑 UX Improvement: Auto-show Settings if no API key exists
+    // Check both localStorage and env variable
+    const hasApiKey = savedApiKey || process.env.API_KEY;
+    if (!hasApiKey) {
+      // Delay slightly to avoid jarring immediate modal on first load
+      setTimeout(() => setShowSettings(true), 500);
+    }
   }, []);
 
   useEffect(() => {
@@ -88,7 +97,7 @@ const App: React.FC = () => {
 
   const generateAudioForDownload = async (text: string) => {
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: getApiKey() }); // Use helper to get correct API key
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: `Slow, clear English for kids: ${text}` }] }],
@@ -134,7 +143,14 @@ const App: React.FC = () => {
       // Generate audio in background without blocking UI (optimization kept)
       generateAudioForDownload(fullScript).catch(e => console.warn('Audio preload failed', e));
     } catch (err: any) {
-      setErrorMessage(err?.message || "Oops! Có lỗi rồi bé ơi.");
+      const errorMsg = err?.message || "Oops! Có lỗi rồi bé ơi.";
+      const isQuotaError = errorMsg.includes('quota') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429');
+
+      setErrorMessage(
+        isQuotaError
+          ? "⚠️ API Key hết quota!\n\nHãy:\n1. Nhấn nút ⚙️ để đổi key mới\n2. Hoặc chờ 1 phút rồi thử lại"
+          : errorMsg
+      );
       setStatus(AppStatus.ERROR);
     }
   };
@@ -266,8 +282,8 @@ const App: React.FC = () => {
       const evalRes = await evaluatePresentation(presentation!.script, base64, recordedBlob.type, level);
       setResult(evalRes);
       setStatus(AppStatus.RESULT);
-    } catch (err) {
-      setErrorMessage("Lỗi khi chấm bài. Bé thử lại nhé!");
+    } catch (err: any) {
+      setErrorMessage(`❌ Lỗi khi chấm bài\n\n${err?.message || 'Vui lòng thử ghi âm lại hoặc kiểm tra API Key.'}`);
       setStatus(AppStatus.ERROR);
     }
   };
@@ -292,11 +308,27 @@ const App: React.FC = () => {
     }
     localStorage.setItem('speakpro_api_key', apiKey.trim());
     localStorage.setItem('speakpro_model', selectedModel);
+
+    // 🔑 CRITICAL: Clear error and allow retry (following SKILL.md)
+    if (errorMessage) {
+      setErrorMessage(null);
+      // If in ERROR state, reset to appropriate state for retry
+      if (status === AppStatus.ERROR) {
+        // If there's a presentation, allow retry from READY state
+        if (presentation) {
+          setStatus(AppStatus.READY);
+        } else {
+          // Otherwise, start fresh
+          setStatus(AppStatus.IDLE);
+        }
+      }
+    }
+
     setShowSettings(false);
-    alert('✅ Đã lưu cài đặt thành công!');
+    alert('✅ Đã lưu cài đặt thành công! Bạn có thể thử lại ngay.');
   };
 
-  const getApiKey = () => apiKey || process.env.API_KEY || '';
+  // No longer needed - using getApiKey() from service
 
   return (
     <div className="min-h-screen bg-[#fffcf5] pb-20 font-['Quicksand'] relative overflow-x-hidden text-slate-700">
@@ -339,10 +371,57 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* ERROR STATE - with retry mechanism following SKILL.md */}
+        {status === AppStatus.ERROR && errorMessage && (
+          <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-8">
+            <div className="w-40 h-40 bg-red-50 rounded-[3rem] flex items-center justify-center shadow-xl border-4 border-white">
+              <AlertTriangle size={80} className="text-red-500" />
+            </div>
+            <div className="max-w-2xl bg-red-50 border-4 border-red-100 rounded-[3rem] p-10 text-center space-y-6">
+              <h3 className="text-3xl font-black text-red-600">Ối! Có lỗi rồi</h3>
+              <p className="text-xl text-slate-700 font-bold whitespace-pre-line leading-relaxed">
+                {errorMessage}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-black text-lg shadow-lg transition-all flex items-center gap-3 justify-center"
+                >
+                  <Settings2 size={24} /> Đổi API Key
+                </button>
+                {/* Retry button - only show if we have presentation (mid-process error) */}
+                {presentation && (
+                  <button
+                    onClick={() => {
+                      setErrorMessage(null);
+                      setStatus(AppStatus.READY);
+                    }}
+                    className="px-8 py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl font-black text-lg shadow-lg transition-all flex items-center gap-3 justify-center"
+                  >
+                    <RotateCcw size={24} /> Thử lại
+                  </button>
+                )}
+                {/* Start over button */}
+                <button
+                  onClick={reset}
+                  className="px-8 py-4 bg-slate-500 hover:bg-slate-600 text-white rounded-2xl font-black text-lg shadow-lg transition-all flex items-center gap-3 justify-center"
+                >
+                  <ArrowRight size={24} /> Bài mới
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {status === AppStatus.GENERATING && (
           <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-8">
             <div className="w-40 h-40 bg-yellow-50 rounded-[3rem] flex items-center justify-center animate-bounce shadow-xl border-4 border-white"><Sparkles size={80} className="text-yellow-400" /></div>
             <h3 className="text-3xl font-black text-slate-800 text-center">Chờ cô Ly một xíu nhé... 🎨</h3>
+            <p className="text-sm text-slate-500 font-bold mt-2">Đang dùng model: <span className="text-orange-500">{selectedModel}</span></p>
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span>Hệ thống sẽ tự động thử model khác nếu gặp lỗi</span>
+            </div>
           </div>
         )}
 
@@ -551,37 +630,37 @@ const App: React.FC = () => {
               </div>
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">2. CHỌN MODEL XỬ LÝ AI</h3>
-                <div onClick={() => setSelectedModel('gemini-3-flash')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-3-flash' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                <div onClick={() => setSelectedModel('gemini-2.0-flash-exp')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-2.0-flash-exp' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-black text-slate-800">Gemini 3.0 Flash (Khuyến dùng)</h4>
-                        {selectedModel === 'gemini-3-flash' && <CheckCircle2 size={20} className="text-teal-500" />}
+                        <h4 className="font-black text-slate-800">Gemini 2.0 Flash Experimental</h4>
+                        {selectedModel === 'gemini-2.0-flash-exp' && <CheckCircle2 size={20} className="text-teal-500" />}
                       </div>
-                      <p className="text-sm text-slate-600">Tốc độ nhanh, ổn định, chi phí thấp nhất.</p>
+                      <p className="text-sm text-slate-600">Mới nhất, nhanh nhất, miễn phí quota cao (Khuyến dùng)</p>
                     </div>
-                    {selectedModel === 'gemini-3-flash' && <span className="px-2 py-1 bg-teal-500 text-white text-xs font-bold rounded-full">Default</span>}
+                    {selectedModel === 'gemini-2.0-flash-exp' && <span className="px-2 py-1 bg-teal-500 text-white text-xs font-bold rounded-full">Default</span>}
                   </div>
                 </div>
-                <div onClick={() => setSelectedModel('gemini-3-pro')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-3-pro' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                <div onClick={() => setSelectedModel('gemini-1.5-pro-latest')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-1.5-pro-latest' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-black text-slate-800">Gemini 3.0 Pro</h4>
-                        {selectedModel === 'gemini-3-pro' && <CheckCircle2 size={20} className="text-teal-500" />}
+                        <h4 className="font-black text-slate-800">Gemini 1.5 Pro</h4>
+                        {selectedModel === 'gemini-1.5-pro-latest' && <CheckCircle2 size={20} className="text-teal-500" />}
                       </div>
-                      <p className="text-sm text-slate-600">Thông minh hơn, xử лý suy luận phức tạp tốt hơn.</p>
+                      <p className="text-sm text-slate-600">Chất lượng cao nhất, suy luận phức tạp tốt</p>
                     </div>
                   </div>
                 </div>
-                <div onClick={() => setSelectedModel('gemini-2.5-flash')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-2.5-flash' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                <div onClick={() => setSelectedModel('gemini-1.5-flash-latest')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-1.5-flash-latest' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-black text-slate-800">Gemini 2.5 Flash</h4>
-                        {selectedModel === 'gemini-2.5-flash' && <CheckCircle2 size={20} className="text-teal-500" />}
+                        <h4 className="font-black text-slate-800">Gemini 1.5 Flash</h4>
+                        {selectedModel === 'gemini-1.5-flash-latest' && <CheckCircle2 size={20} className="text-teal-500" />}
                       </div>
-                      <p className="text-sm text-slate-600">Model dự phòng, ổn định cao.</p>
+                      <p className="text-sm text-slate-600">Ổn định cao, tốc độ tốt, dự phòng tin cậy</p>
                     </div>
                   </div>
                 </div>
