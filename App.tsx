@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
+
 import { Theme, AppStatus, PresentationData, EvaluationResult, CEFRLevel, VocabularyItem } from './types';
 import { PREDEFINED_THEMES, CEFR_LEVELS } from './constants';
 import {
@@ -32,7 +32,7 @@ const App: React.FC = () => {
   const [showCertificate, setShowCertificate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [apiKey, setApiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp'); // Corrected default model
+
 
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
@@ -51,9 +51,7 @@ const App: React.FC = () => {
   // Load settings from localStorage on mount
   useEffect(() => {
     const savedApiKey = localStorage.getItem('speakpro_api_key');
-    const savedModel = localStorage.getItem('speakpro_model');
     if (savedApiKey) setApiKey(savedApiKey);
-    if (savedModel) setSelectedModel(savedModel);
 
     // 🔑 UX Improvement: Auto-show Settings if no API key exists
     // Check both localStorage and env variable
@@ -97,23 +95,42 @@ const App: React.FC = () => {
 
   const generateAudioForDownload = async (text: string) => {
     try {
-      const ai = new GoogleGenAI({ apiKey: getApiKey() }); // Use helper to get correct API key
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: `Slow, clear English for kids: ${text}` }] }],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } }
-        },
-      });
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
-        const binary = atob(base64Audio);
-        const array = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
-        const blob = new Blob([array], { type: 'audio/wav' });
-        setTeacherAudioUrl(URL.createObjectURL(blob));
+      const buffer = await generateTeacherVoice(text);
+      // Convert AudioBuffer to WAV blob for download
+      const numChannels = buffer.numberOfChannels;
+      const sampleRate = buffer.sampleRate;
+      const length = buffer.length;
+      const arrayBuffer = new ArrayBuffer(44 + length * numChannels * 2);
+      const view = new DataView(arrayBuffer);
+
+      // WAV header
+      const writeString = (offset: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)); };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + length * numChannels * 2, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * numChannels * 2, true);
+      view.setUint16(32, numChannels * 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, length * numChannels * 2, true);
+
+      // Audio data
+      let offset = 44;
+      for (let i = 0; i < length; i++) {
+        for (let ch = 0; ch < numChannels; ch++) {
+          const sample = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i]));
+          view.setInt16(offset, sample * 0x7FFF, true);
+          offset += 2;
+        }
       }
+
+      const blob = new Blob([arrayBuffer], { type: 'audio/wav' });
+      setTeacherAudioUrl(URL.createObjectURL(blob));
     } catch (e) {
       console.error("Audio generation for download failed", e);
     }
@@ -144,13 +161,8 @@ const App: React.FC = () => {
       generateAudioForDownload(fullScript).catch(e => console.warn('Audio preload failed', e));
     } catch (err: any) {
       const errorMsg = err?.message || "Oops! Có lỗi rồi bé ơi.";
-      const isQuotaError = errorMsg.includes('quota') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429');
-
-      setErrorMessage(
-        isQuotaError
-          ? "⚠️ API Key hết quota!\n\nHãy:\n1. Nhấn nút ⚙️ để đổi key mới\n2. Hoặc chờ 1 phút rồi thử lại"
-          : errorMsg
-      );
+      console.error('[SpeakPro Error]', err);
+      setErrorMessage(errorMsg);
       setStatus(AppStatus.ERROR);
     }
   };
@@ -307,7 +319,6 @@ const App: React.FC = () => {
       return;
     }
     localStorage.setItem('speakpro_api_key', apiKey.trim());
-    localStorage.setItem('speakpro_model', selectedModel);
 
     // 🔑 CRITICAL: Clear error and allow retry (following SKILL.md)
     if (errorMessage) {
@@ -417,7 +428,7 @@ const App: React.FC = () => {
           <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-8">
             <div className="w-40 h-40 bg-yellow-50 rounded-[3rem] flex items-center justify-center animate-bounce shadow-xl border-4 border-white"><Sparkles size={80} className="text-yellow-400" /></div>
             <h3 className="text-3xl font-black text-slate-800 text-center">Chờ cô Ly một xíu nhé... 🎨</h3>
-            <p className="text-sm text-slate-500 font-bold mt-2">Đang dùng model: <span className="text-orange-500">{selectedModel}</span></p>
+            <p className="text-sm text-slate-500 font-bold mt-2">Đang dùng model: <span className="text-orange-500">gemini-2.5-flash-lite</span></p>
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
               <span>Hệ thống sẽ tự động thử model khác nếu gặp lỗi</span>
@@ -629,42 +640,32 @@ const App: React.FC = () => {
                 <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="AIza..." className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition-all font-mono text-sm" />
               </div>
               <div className="space-y-3">
-                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">2. CHỌN MODEL XỬ LÝ AI</h3>
-                <div onClick={() => setSelectedModel('gemini-2.0-flash-exp')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-2.0-flash-exp' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">2. MODEL AI ĐANG SỬ DỤNG</h3>
+                <div className="p-4 border-2 rounded-2xl border-teal-400 bg-teal-50">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-black text-slate-800">Gemini 2.0 Flash Experimental</h4>
-                        {selectedModel === 'gemini-2.0-flash-exp' && <CheckCircle2 size={20} className="text-teal-500" />}
+                        <h4 className="font-black text-slate-800">Gemini 2.5 Flash Lite</h4>
+                        <CheckCircle2 size={20} className="text-teal-500" />
+                        <span className="px-2 py-1 bg-teal-500 text-white text-xs font-bold rounded-full">Mặc định</span>
                       </div>
-                      <p className="text-sm text-slate-600">Mới nhất, nhanh nhất, miễn phí quota cao (Khuyến dùng)</p>
-                    </div>
-                    {selectedModel === 'gemini-2.0-flash-exp' && <span className="px-2 py-1 bg-teal-500 text-white text-xs font-bold rounded-full">Default</span>}
-                  </div>
-                </div>
-                <div onClick={() => setSelectedModel('gemini-1.5-pro-latest')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-1.5-pro-latest' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-black text-slate-800">Gemini 1.5 Pro</h4>
-                        {selectedModel === 'gemini-1.5-pro-latest' && <CheckCircle2 size={20} className="text-teal-500" />}
-                      </div>
-                      <p className="text-sm text-slate-600">Chất lượng cao nhất, suy luận phức tạp tốt</p>
+                      <p className="text-sm text-slate-600">Nhanh nhất, tiết kiệm quota nhất, ổn định (Khuyến dùng)</p>
                     </div>
                   </div>
                 </div>
-                <div onClick={() => setSelectedModel('gemini-1.5-flash-latest')} className={`p-4 border-2 rounded-2xl cursor-pointer transition-all ${selectedModel === 'gemini-1.5-flash-latest' ? 'border-teal-400 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-black text-slate-800">Gemini 1.5 Flash</h4>
-                        {selectedModel === 'gemini-1.5-flash-latest' && <CheckCircle2 size={20} className="text-teal-500" />}
-                      </div>
-                      <p className="text-sm text-slate-600">Ổn định cao, tốc độ tốt, dự phòng tin cậy</p>
-                    </div>
+                <div className="p-4 border-2 rounded-2xl border-slate-100 bg-slate-50">
+                  <div className="flex-1">
+                    <h4 className="font-bold text-slate-600 text-sm">Dự phòng: Gemini 2.5 Flash</h4>
+                    <p className="text-xs text-slate-500">Tự động dùng khi model chính gặp lỗi</p>
                   </div>
                 </div>
-                <p className="text-xs text-slate-500 italic px-2">💡 Hệ thống sẽ tự động chuyển đổi sang các model khác nếu gặp lỗi (tối đa 9 lần thử).</p>
+                <div className="p-4 border-2 rounded-2xl border-slate-100 bg-slate-50">
+                  <div className="flex-1">
+                    <h4 className="font-bold text-slate-600 text-sm">Tạo ảnh: Gemini 2.5 Flash Image</h4>
+                    <p className="text-xs text-slate-500">Model chuyên tạo ảnh minh họa</p>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 italic px-2">💡 Hệ thống tự động chuyển model dự phòng nếu gặp lỗi. Free tier: 10 request/phút, 250 request/ngày.</p>
               </div>
               <button onClick={saveSettings} className="w-full py-4 bg-teal-500 hover:bg-teal-600 text-white font-black text-lg rounded-2xl shadow-lg hover:shadow-xl transition-all">Lưu cài đặt</button>
             </div>

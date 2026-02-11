@@ -15,8 +15,8 @@ export function getApiKey(): string {
   const userKey = localStorage.getItem('speakpro_api_key');
   if (userKey && userKey.trim()) return userKey.trim();
 
-  // Priority 2: Environment variable (dev only)
-  const envKey = process.env.API_KEY;
+  // Priority 2: Environment variable (dev only - from vite.config.ts)
+  const envKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
   if (envKey && envKey.trim()) return envKey.trim();
 
   throw new Error('⚠️ Chưa có API Key! Vào Settings (⚙️) để nhập key.');
@@ -29,19 +29,49 @@ function createAIClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: getApiKey() });
 }
 
-// Model fallback configuration - Using 2026 stable models from official docs
+// ========================================
+// Model Configuration - 2026 Stable Models
 // https://ai.google.dev/gemini-api/docs/models
+// ========================================
+// Free tier limits: 10 RPM, 250 RPD, 250K TPM
+// Strategy: Use cheapest model first, minimize retries
+
 const MODEL_FALLBACK_CHAIN = [
-  'gemini-2.5-flash',          // Primary: Fastest stable model, best price-performance
-  'gemini-2.5-pro'             // Fallback: Most capable model for complex tasks
+  'gemini-2.5-flash-lite',     // Primary: Cheapest, optimized for high-throughput
+  'gemini-2.5-flash',          // Fallback: Fast, best price-performance
 ];
 
 type ModelType = 'text' | 'image';
 
+// ========================================
+// Rate Limiter - Prevent exceeding 10 RPM
+// ========================================
+const requestTimestamps: number[] = [];
+const MAX_RPM = 8; // Stay under 10 RPM limit with buffer
+
+async function waitForRateLimit(): Promise<void> {
+  const now = Date.now();
+  // Remove timestamps older than 60 seconds
+  while (requestTimestamps.length > 0 && requestTimestamps[0] < now - 60000) {
+    requestTimestamps.shift();
+  }
+
+  if (requestTimestamps.length >= MAX_RPM) {
+    const waitTime = requestTimestamps[0] + 60000 - now + 500; // Wait until oldest request expires + buffer
+    console.log(`[Rate Limiter] Approaching limit (${requestTimestamps.length}/${MAX_RPM} RPM), waiting ${waitTime}ms...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
+  requestTimestamps.push(Date.now());
+}
+
+// ========================================
+// Model Fallback System
+// ========================================
 async function callWithModelFallback<T>(
   fn: (model: string) => Promise<T>,
   modelType: ModelType = 'text',
-  maxRetries = 3
+  maxRetries = 2  // Reduced from 3 to save quota
 ): Promise<T> {
   const models = modelType === 'image'
     ? ['gemini-2.5-flash-image']  // Official stable image generation model
@@ -50,41 +80,55 @@ async function callWithModelFallback<T>(
   let lastError: any;
 
   for (const model of models) {
-    let delay = 1500;
+    let delay = 3000; // Start with longer delay to respect rate limits
 
-    // Try each model with limited retries
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        console.log(`[Model Fallback] Trying ${model}, attempt ${attempt + 1}`);
+        await waitForRateLimit(); // Enforce rate limiting
+        console.log(`[API] ${model} (attempt ${attempt + 1}/${maxRetries})`);
         return await fn(model);
       } catch (err: any) {
         lastError = err;
         const errorStr = JSON.stringify(err).toLowerCase();
-        const isRateLimit = err?.status === 429 || errorStr.includes('quota') || errorStr.includes('rate limit');
+        const isNotFound = err?.status === 404 || errorStr.includes('not_found');
+        const isRateLimit = err?.status === 429 || errorStr.includes('quota') || errorStr.includes('rate limit') || errorStr.includes('resource_exhausted');
         const isServerError = err?.status >= 500 || errorStr.includes('internal error');
 
-        // If rate limit or server error, retry with delay
-        if ((isRateLimit || isServerError) && attempt < maxRetries - 1) {
-          console.log(`[Model Fallback] ${model} failed (${err?.status}), retrying in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          delay *= 2.5;
-          continue;
-        }
-
-        // If this is not the last model, try next model immediately
-        if (models.indexOf(model) < models.length - 1) {
-          console.log(`[Model Fallback] ${model} exhausted, switching to next model`);
+        // If model not found, skip to next model immediately (don't waste retries)
+        if (isNotFound) {
+          console.log(`[API] ${model} not found, skipping to next model`);
           break;
         }
 
-        // If it's the last model and last attempt, throw error
+        // If rate limit, use longer delay before retry
+        if (isRateLimit && attempt < maxRetries - 1) {
+          const rateLimitDelay = delay * 2;
+          console.log(`[API] Rate limited, waiting ${rateLimitDelay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, rateLimitDelay));
+          delay *= 2;
+          continue;
+        }
+
+        // If server error, retry with normal delay
+        if (isServerError && attempt < maxRetries - 1) {
+          console.log(`[API] Server error (${err?.status}), retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2;
+          continue;
+        }
+
+        // Try next model if available
+        if (models.indexOf(model) < models.length - 1) {
+          console.log(`[API] ${model} failed, trying next model`);
+          break;
+        }
+
         throw err;
       }
     }
   }
 
-  // If all models failed, throw the last error
-  throw new Error(`⚠️ LỖI MÁY CHỦ: Tất cả ${models.length} model AI đều gặp lỗi.\n\nVui lòng:\n1. Kiểm tra API Key còn quota\n2. Chờ 30 giây rồi thử lại\n\nChi tiết: ${lastError?.message || 'Lỗi không xác định'}`);
+  throw new Error(`⚠️ API Key hết quota!\n\nHãy:\n1. Nhấn nút ⚙️ để đổi key mới\n2. Hoặc chờ 1 phút rồi thử lại`);
 }
 
 export const generateIllustration = async (theme: string): Promise<string> => {
@@ -194,7 +238,7 @@ export const evaluatePresentation = async (originalScript: string, audioBase64: 
   return callWithModelFallback(async (model) => {
     const ai = createAIClient(); // Use helper with localStorage priority
     const response = await ai.models.generateContent({
-      model, // Use dynamic model from fallback (default: gemini-3-pro-preview)
+      model, // Use dynamic model from fallback chain
       contents: {
         parts: [
           { inlineData: { mimeType: audioMimeType, data: audioBase64 } },
