@@ -73,9 +73,9 @@ async function callWithModelFallback<T>(
   modelType: ModelType = 'text',
   maxRetries = 2  // Reduced from 3 to save quota
 ): Promise<T> {
-  const models = modelType === 'image'
-    ? ['gemini-2.5-flash-image']  // Official stable image generation model
-    : MODEL_FALLBACK_CHAIN;
+  // Use text models for image generation - they support it natively!
+  // gemini-2.5-flash-image NOT available in free tier, causes quota errors
+  const models = MODEL_FALLBACK_CHAIN;
 
   let lastError: any;
 
