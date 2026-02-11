@@ -29,11 +29,11 @@ function createAIClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: getApiKey() });
 }
 
-// Model fallback configuration - CORRECTED to match Google AI Studio actual models
+// Model fallback configuration - Using stable, available models
 const MODEL_FALLBACK_CHAIN = [
-  'gemini-2.0-flash-exp',      // Default: Latest, fastest experimental
-  'gemini-1.5-pro-latest',     // Fallback 1: Most capable stable model
-  'gemini-1.5-flash-latest'    // Fallback 2: Most stable, reliable
+  'gemini-1.5-flash',          // Default: Fast, stable, widely available
+  'gemini-1.5-pro',            // Fallback 1: Most capable stable model
+  'gemini-1.0-pro'             // Fallback 2: Legacy stable model
 ];
 
 type ModelType = 'text' | 'image';
@@ -44,7 +44,7 @@ async function callWithModelFallback<T>(
   maxRetries = 3
 ): Promise<T> {
   const models = modelType === 'image'
-    ? ['gemini-2.0-flash-exp'] // Gemini 2.0 supports native image generation
+    ? ['gemini-1.5-flash', 'gemini-1.5-pro'] // Use stable models for image generation
     : MODEL_FALLBACK_CHAIN;
 
   let lastError: any;
